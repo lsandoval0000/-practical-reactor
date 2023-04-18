@@ -16,8 +16,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Backpressure is a mechanism that allows a consumer to signal to a producer that it is ready receive data.
- * This is important because the producer may be sending data faster than the consumer can process it, and can overwhelm consumer.
+ * Backpressure is a mechanism that allows a consumer to signal to a producer
+ * that it is ready receive data.
+ * This is important because the producer may be sending data faster than the
+ * consumer can process it, and can overwhelm consumer.
  *
  * Read first:
  *
@@ -40,125 +42,137 @@ import java.util.concurrent.atomic.AtomicReference;
 public class c10_Backpressure extends BackpressureBase {
 
     /**
-     * In this exercise subscriber (test) will request several messages from the message stream.
+     * In this exercise subscriber (test) will request several messages from the
+     * message stream.
      * Hook to the requests and record them to the `requests` list.
      */
     @Test
     public void request_and_demand() {
         CopyOnWriteArrayList<Long> requests = new CopyOnWriteArrayList<>();
         Flux<String> messageStream = messageStream1()
-                //todo: change this line only
-                ;
+                .doOnRequest(requests::add);
 
         StepVerifier.create(messageStream, StepVerifierOptions.create().initialRequest(0))
-                    .expectSubscription()
-                    .thenRequest(1)
-                    .then(() -> pub1.next("msg#1"))
-                    .thenRequest(3)
-                    .then(() -> pub1.next("msg#2", "msg#3"))
-                    .then(pub1::complete)
-                    .expectNext("msg#1", "msg#2", "msg#3")
-                    .verifyComplete();
+                .expectSubscription()
+                .thenRequest(1)
+                .then(() -> pub1.next("msg#1"))
+                .thenRequest(3)
+                .then(() -> pub1.next("msg#2", "msg#3"))
+                .then(pub1::complete)
+                .expectNext("msg#1", "msg#2", "msg#3")
+                .verifyComplete();
 
         Assertions.assertEquals(List.of(1L, 3L), requests);
     }
 
     /**
-     * Adjust previous solution in such a way that you limit rate of requests. Number of requested messages stays the
+     * Adjust previous solution in such a way that you limit rate of requests.
+     * Number of requested messages stays the
      * same, but each request should be limited to 1 message.
      */
     @Test
     public void limited_demand() {
         CopyOnWriteArrayList<Long> requests = new CopyOnWriteArrayList<>();
         Flux<String> messageStream = messageStream2()
-                //todo: do your changes here
-                ;
+                .doOnRequest(requests::add)
+                .limitRate(1);
 
         StepVerifier.create(messageStream, StepVerifierOptions.create().initialRequest(0))
-                    .expectSubscription()
-                    .thenRequest(1)
-                    .then(() -> pub2.next("msg#1"))
-                    .thenRequest(3)
-                    .then(() -> pub2.next("msg#2", "msg#3"))
-                    .then(pub2::complete)
-                    .expectNext("msg#1", "msg#2", "msg#3")
-                    .verifyComplete();
+                .expectSubscription()
+                .thenRequest(1)
+                .then(() -> pub2.next("msg#1"))
+                .thenRequest(3)
+                .then(() -> pub2.next("msg#2", "msg#3"))
+                .then(pub2::complete)
+                .expectNext("msg#1", "msg#2", "msg#3")
+                .verifyComplete();
 
         Assertions.assertEquals(List.of(1L, 1L, 1L, 1L), requests);
     }
 
     /**
-     * Finish the implementation of the `uuidGenerator` so it exactly requested amount of UUIDs. Or better said, it
+     * Finish the implementation of the `uuidGenerator` so it exactly requested
+     * amount of UUIDs. Or better said, it
      * should respect the backpressure of the consumer.
      */
     @Test
     public void uuid_generator() {
         Flux<UUID> uuidGenerator = Flux.create(sink -> {
-            //todo: do your changes here
+            sink.onRequest(number -> {
+                for (int i = 0; i < number; i++) {
+                    sink.next(UUID.randomUUID());
+                }
+            });
         });
 
         StepVerifier.create(uuidGenerator
-                                    .doOnNext(System.out::println)
-                                    .timeout(Duration.ofSeconds(1))
-                                    .onErrorResume(TimeoutException.class, e -> Flux.empty()),
-                            StepVerifierOptions.create().initialRequest(0))
-                    .expectSubscription()
-                    .thenRequest(10)
-                    .expectNextCount(10)
-                    .thenCancel()
-                    .verify();
+                .doOnNext(System.out::println)
+                .timeout(Duration.ofSeconds(1))
+                .onErrorResume(TimeoutException.class, e -> Flux.empty()),
+                StepVerifierOptions.create().initialRequest(0))
+                .expectSubscription()
+                .thenRequest(10)
+                .expectNextCount(10)
+                .thenCancel()
+                .verify();
     }
 
     /**
-     * You are receiving messages from malformed publisher that may not respect backpressure.
-     * In case that publisher produces more messages than subscriber is able to consume, raise an error.
+     * You are receiving messages from malformed publisher that may not respect
+     * backpressure.
+     * In case that publisher produces more messages than subscriber is able to
+     * consume, raise an error.
      */
     @Test
     public void pressure_is_too_much() {
         Flux<String> messageStream = messageStream3()
-                //todo: change this line only
-                ;
+                .onBackpressureError();
 
         StepVerifier.create(messageStream, StepVerifierOptions.create()
-                                                              .initialRequest(0))
-                    .expectSubscription()
-                    .thenRequest(3)
-                    .then(() -> pub3.next("A", "B", "C", "D"))
-                    .expectNext("A", "B", "C")
-                    .expectErrorMatches(Exceptions::isOverflow)
-                    .verify();
+                .initialRequest(0))
+                .expectSubscription()
+                .thenRequest(3)
+                .then(() -> pub3.next("A", "B", "C", "D"))
+                .expectNext("A", "B", "C")
+                .expectErrorMatches(Exceptions::isOverflow)
+                .verify();
     }
 
     /**
-     * You are receiving messages from malformed publisher that may not respect backpressure. In case that publisher
-     * produces more messages than subscriber is able to consume, buffer them for later consumption without raising an
+     * You are receiving messages from malformed publisher that may not respect
+     * backpressure. In case that publisher
+     * produces more messages than subscriber is able to consume, buffer them for
+     * later consumption without raising an
      * error.
      */
     @Test
     public void u_wont_brake_me() {
         Flux<String> messageStream = messageStream4()
-                //todo: change this line only
-                ;
+                .onBackpressureBuffer();
 
         StepVerifier.create(messageStream, StepVerifierOptions.create()
-                                                              .initialRequest(0))
-                    .expectSubscription()
-                    .thenRequest(3)
-                    .then(() -> pub4.next("A", "B", "C", "D"))
-                    .expectNext("A", "B", "C")
-                    .then(() -> pub4.complete())
-                    .thenAwait()
-                    .thenRequest(1)
-                    .expectNext("D")
-                    .verifyComplete();
+                .initialRequest(0))
+                .expectSubscription()
+                .thenRequest(3)
+                .then(() -> pub4.next("A", "B", "C", "D"))
+                .expectNext("A", "B", "C")
+                .then(() -> pub4.complete())
+                .thenAwait()
+                .thenRequest(1)
+                .expectNext("D")
+                .verifyComplete();
     }
 
     /**
-     * We saw how to react to request demand from producer side. In this part we are going to control demand from
+     * We saw how to react to request demand from producer side. In this part we are
+     * going to control demand from
      * consumer side by implementing BaseSubscriber directly.
-     * Finish implementation of base subscriber (consumer of messages) with following objectives:
-     * - once there is subscription, you should request exactly 10 messages from publisher
-     * - once you received 10 messages, you should cancel any further requests from publisher.
+     * Finish implementation of base subscriber (consumer of messages) with
+     * following objectives:
+     * - once there is subscription, you should request exactly 10 messages from
+     * publisher
+     * - once you received 10 messages, you should cancel any further requests from
+     * publisher.
      * Producer respects backpressure.
      */
     @Test
@@ -170,18 +184,22 @@ public class c10_Backpressure extends BackpressureBase {
         remoteMessageProducer()
                 .doOnCancel(() -> lockRef.get().countDown())
                 .subscribeWith(new BaseSubscriber<String>() {
-                    //todo: do your changes only within BaseSubscriber class implementation
+
                     @Override
                     protected void hookOnSubscribe(Subscription subscription) {
                         sub.set(subscription);
+                        subscription.request(10);
                     }
 
                     @Override
                     protected void hookOnNext(String s) {
                         System.out.println(s);
                         count.incrementAndGet();
+                        if (count.get() >= 10) {
+                            cancel();
+                        }
                     }
-                    //-----------------------------------------------------
+                    // -----------------------------------------------------
                 });
 
         lockRef.get().await();

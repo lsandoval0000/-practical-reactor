@@ -7,6 +7,7 @@ import reactor.core.Scannable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.NonBlocking;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
@@ -17,8 +18,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * With multi-core architectures being a commodity nowadays, being able to easily parallelize work is important.
- * Reactor helps with that by providing many mechanisms to execute work in parallel.
+ * With multi-core architectures being a commodity nowadays, being able to
+ * easily parallelize work is important.
+ * Reactor helps with that by providing many mechanisms to execute work in
+ * parallel.
  *
  * Read first:
  *
@@ -39,22 +42,24 @@ import java.util.stream.Collectors;
 public class c9_ExecutionControl extends ExecutionControlBase {
 
     /**
-     * You are working on smartphone app and this part of code should show user his notifications. Since there could be
-     * multiple notifications, for better UX you want to slow down appearance between notifications by 1 second.
-     * Pay attention to threading, compare what code prints out before and after solution. Explain why?
+     * You are working on smartphone app and this part of code should show user his
+     * notifications. Since there could be
+     * multiple notifications, for better UX you want to slow down appearance
+     * between notifications by 1 second.
+     * Pay attention to threading, compare what code prints out before and after
+     * solution. Explain why?
      */
     @Test
     public void slow_down_there_buckaroo() {
         long threadId = Thread.currentThread().getId();
         Flux<String> notifications = readNotifications()
-                .doOnNext(System.out::println)
-                //todo: change this line only
-                ;
+                .delayElements(Duration.ofSeconds(1))
+                .doOnNext(System.out::println);
 
         StepVerifier.create(notifications
-                                    .doOnNext(s -> assertThread(threadId)))
-                    .expectNextCount(5)
-                    .verifyComplete();
+                .doOnNext(s -> assertThread(threadId)))
+                .expectNextCount(5)
+                .verifyComplete();
     }
 
     private void assertThread(long invokerThreadId) {
@@ -68,26 +73,27 @@ public class c9_ExecutionControl extends ExecutionControlBase {
     }
 
     /**
-     * You are using free access to remote hosting machine. You want to execute 3 tasks on this machine, but machine
-     * will allow you to execute one task at a time on a given schedule which is orchestrated by the semaphore. If you
+     * You are using free access to remote hosting machine. You want to execute 3
+     * tasks on this machine, but machine
+     * will allow you to execute one task at a time on a given schedule which is
+     * orchestrated by the semaphore. If you
      * disrespect schedule, your access will be blocked.
-     * Delay execution of tasks until semaphore signals you that you can execute the task.
+     * Delay execution of tasks until semaphore signals you that you can execute the
+     * task.
      */
     @Test
     public void ready_set_go() {
-        //todo: feel free to change code as you need
         Flux<String> tasks = tasks()
-                .flatMap(Function.identity());
-        semaphore();
+                .concatMap(task -> task.delaySubscription(semaphore()));
 
-        //don't change code below
+        // don't change code below
         StepVerifier.create(tasks)
-                    .expectNext("1")
-                    .expectNoEvent(Duration.ofMillis(2000))
-                    .expectNext("2")
-                    .expectNoEvent(Duration.ofMillis(2000))
-                    .expectNext("3")
-                    .verifyComplete();
+                .expectNext("1")
+                .expectNoEvent(Duration.ofMillis(2000))
+                .expectNext("2")
+                .expectNoEvent(Duration.ofMillis(2000))
+                .expectNext("3")
+                .verifyComplete();
     }
 
     /**
@@ -100,15 +106,15 @@ public class c9_ExecutionControl extends ExecutionControlBase {
     @Test
     public void non_blocking() {
         Mono<Void> task = Mono.fromRunnable(() -> {
-                                  Thread currentThread = Thread.currentThread();
-                                  assert NonBlocking.class.isAssignableFrom(Thread.currentThread().getClass());
-                                  System.out.println("Task executing on: " + currentThread.getName());
-                              })
-                              //todo: change this line only
-                              .then();
+            Thread currentThread = Thread.currentThread();
+            assert NonBlocking.class.isAssignableFrom(Thread.currentThread().getClass());
+            System.out.println("Task executing on: " + currentThread.getName());
+        })
+                .subscribeOn(Schedulers.parallel())
+                .then();
 
         StepVerifier.create(task)
-                    .verifyComplete();
+                .verifyComplete();
     }
 
     /**
@@ -118,14 +124,14 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void blocking() {
-        BlockHound.install(); //don't change this line
+        BlockHound.install(); // don't change this line
 
         Mono<Void> task = Mono.fromRunnable(ExecutionControlBase::blockingCall)
-                              .subscribeOn(Schedulers.single())//todo: change this line only
-                              .then();
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
 
         StepVerifier.create(task)
-                    .verifyComplete();
+                .verifyComplete();
     }
 
     /**
@@ -133,68 +139,73 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void free_runners() {
-        //todo: feel free to change code as you need
-        Mono<Void> task = Mono.fromRunnable(ExecutionControlBase::blockingCall);
+        Mono<Void> task = Mono.fromRunnable(ExecutionControlBase::blockingCall)
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
 
         Flux<Void> taskQueue = Flux.just(task, task, task)
-                                   .concatMap(Function.identity());
+                .flatMap(Function.identity(), 3);
 
-        //don't change code below
+        // don't change code below
         Duration duration = StepVerifier.create(taskQueue)
-                                        .expectComplete()
-                                        .verify();
+                .expectComplete()
+                .verify();
 
         Assertions.assertTrue(duration.getSeconds() <= 2, "Expected to complete in less than 2 seconds");
     }
 
     /**
-     * Adapt the code so tasks are executed in parallel, but task results should preserve order in which they are invoked.
+     * Adapt the code so tasks are executed in parallel, but task results should
+     * preserve order in which they are invoked.
      */
     @Test
     public void sequential_free_runners() {
-        //todo: feel free to change code as you need
         Flux<String> tasks = tasks()
-                .flatMap(Function.identity());
-        ;
+                .flatMapSequential(Function.identity())
+                .doOnNext(System.out::println);
 
-        //don't change code below
+        // don't change code below
         Duration duration = StepVerifier.create(tasks)
-                                        .expectNext("1")
-                                        .expectNext("2")
-                                        .expectNext("3")
-                                        .verifyComplete();
+                .expectNext("1")
+                .expectNext("2")
+                .expectNext("3")
+                .verifyComplete();
 
         Assertions.assertTrue(duration.getSeconds() <= 1, "Expected to complete in less than 1 seconds");
     }
 
     /**
      * Make use of ParallelFlux to branch out processing of events in such way that:
-     * - filtering events that have metadata, printing out metadata, and mapping to json can be done in parallel.
-     * Then branch in before appending events to store. `appendToStore` must be invoked sequentially!
+     * - filtering events that have metadata, printing out metadata, and mapping to
+     * json can be done in parallel.
+     * Then branch in before appending events to store. `appendToStore` must be
+     * invoked sequentially!
      */
     @Test
     public void event_processor() {
-        //todo: feel free to change code as you need
         Flux<String> eventStream = eventProcessor()
+                .parallel()
+                .runOn(Schedulers.parallel())
                 .filter(event -> event.metaData.length() > 0)
                 .doOnNext(event -> System.out.println("Mapping event: " + event.metaData))
                 .map(this::toJson)
+                .sequential()
                 .concatMap(n -> appendToStore(n).thenReturn(n));
 
-        //don't change code below
+        // don't change code below
         StepVerifier.create(eventStream)
-                    .expectNextCount(250)
-                    .verifyComplete();
+                .expectNextCount(250)
+                .verifyComplete();
 
         List<String> steps = Scannable.from(eventStream)
-                                      .parents()
-                                      .map(Object::toString)
-                                      .collect(Collectors.toList());
+                .parents()
+                .map(Object::toString)
+                .collect(Collectors.toList());
 
         String last = Scannable.from(eventStream)
-                               .steps()
-                               .collect(Collectors.toCollection(LinkedList::new))
-                               .getLast();
+                .steps()
+                .collect(Collectors.toCollection(LinkedList::new))
+                .getLast();
 
         Assertions.assertEquals("concatMap", last);
         Assertions.assertTrue(steps.contains("ParallelMap"), "Map operator not executed in parallel");
